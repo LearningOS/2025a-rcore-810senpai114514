@@ -292,7 +292,7 @@ impl MemorySet {
         let map_area = MapArea::new(start_va, end_vpn.into(), MapType::Framed, permission);
         
         // Try to map all pages
-        for vpn in map_area.vpn_range {
+        for _vpn in map_area.vpn_range {
             if frame_alloc().is_none() {
                 // Allocation failed, need to clean up already allocated pages
                 // For simplicity, we'll just return error without cleanup

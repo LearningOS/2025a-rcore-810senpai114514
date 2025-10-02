@@ -3,9 +3,11 @@ use crate::task::{change_program_brk, exit_current_and_run_next, suspend_current
 use crate::mm::{check_user_address, copy_from_user, copy_to_user, VirtAddr, MapPermission};
 use crate::syscall::{get_syscall_counter};
 use crate::config::PAGE_SIZE;
+use crate::timer::get_time_us;
+use core::mem;
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct TimeVal {
     pub sec: usize,
     pub usec: usize,
@@ -33,7 +35,7 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     let us = get_time_us();
     ts.sec = us / 1000000;
     ts.usec = us % 1000000;
-    copy_to_user(current_user_token(), &ts, _ts, std::mem::size_of::<TimeVal>());
+    copy_to_user(current_user_token(), &ts, _ts as *mut u8, mem::size_of::<TimeVal>());
     0
 }
 
