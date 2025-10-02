@@ -1,6 +1,7 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
 
 use super::{frame_alloc, FrameTracker, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
+use super::PAGE_SIZE;
 use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
@@ -178,4 +179,175 @@ pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&
         start = end_va.into();
     }
     v
+}
+
+/// Copy data from user space to kernel space
+/// 
+/// # Arguments
+/// * `token` - User space page table token
+/// * `user_ptr` - Pointer to user space data
+/// * `kernel_buf` - Buffer in kernel space to copy data to
+/// * `len` - Number of bytes to copy
+/// 
+/// # Returns
+/// * `Ok(())` - Success
+/// * `Err(usize)` - Error with the number of bytes successfully copied
+pub fn copy_from_user(token: usize, user_ptr: *const u8, kernel_buf: &mut [u8], len: usize) -> Result<(), usize> {
+    if len == 0 {
+        return Ok(());
+    }
+    
+    if len > kernel_buf.len() {
+        return Err(0);
+    }
+    
+    let page_table = PageTable::from_token(token);
+    let mut copied = 0;
+    let mut start = user_ptr as usize;
+    let end = start + len;
+    let mut kernel_offset = 0;
+    
+    while start < end && kernel_offset < kernel_buf.len() {
+        let start_va = VirtAddr::from(start);
+        let mut vpn = start_va.floor();
+        
+        // Check if the page is valid and readable
+        let pte = match page_table.translate(vpn) {
+            Some(pte) if pte.is_valid() && pte.readable() => pte,
+            _ => return Err(copied), // Page not accessible
+        };
+        
+        let ppn = pte.ppn();
+        vpn.step();
+        let mut end_va: VirtAddr = vpn.into();
+        end_va = end_va.min(VirtAddr::from(end));
+        
+        let page_start_offset = start_va.page_offset();
+        let page_end_offset = end_va.page_offset();
+        let page_len = if page_end_offset == 0 {
+            PAGE_SIZE - page_start_offset
+        } else {
+            page_end_offset - page_start_offset
+        };
+        
+        let copy_len = page_len.min(kernel_buf.len() - kernel_offset);
+        
+        // Perform the actual copy
+        unsafe {
+            let user_data = &ppn.get_bytes_array()[page_start_offset..page_start_offset + copy_len];
+            kernel_buf[kernel_offset..kernel_offset + copy_len].copy_from_slice(user_data);
+        }
+        
+        copied += copy_len;
+        kernel_offset += copy_len;
+        start += copy_len;
+    }
+    
+    if copied == len {
+        Ok(())
+    } else {
+        Err(copied)
+    }
+}
+
+/// Copy data from kernel space to user space
+/// 
+/// # Arguments
+/// * `token` - User space page table token
+/// * `kernel_buf` - Buffer in kernel space to copy data from
+/// * `user_ptr` - Pointer to user space data
+/// * `len` - Number of bytes to copy
+/// 
+/// # Returns
+/// * `Ok(())` - Success
+/// * `Err(usize)` - Error with the number of bytes successfully copied
+pub fn copy_to_user(token: usize, kernel_buf: &[u8], user_ptr: *mut u8, len: usize) -> Result<(), usize> {
+    if len == 0 {
+        return Ok(());
+    }
+    
+    if len > kernel_buf.len() {
+        return Err(0);
+    }
+    
+    let page_table = PageTable::from_token(token);
+    let mut copied = 0;
+    let mut start = user_ptr as usize;
+    let end = start + len;
+    let mut kernel_offset = 0;
+    
+    while start < end && kernel_offset < kernel_buf.len() {
+        let start_va = VirtAddr::from(start);
+        let mut vpn = start_va.floor();
+        
+        // Check if the page is valid and writable
+        let pte = match page_table.translate(vpn) {
+            Some(pte) if pte.is_valid() && pte.writable() => pte,
+            _ => return Err(copied), // Page not accessible
+        };
+        
+        let ppn = pte.ppn();
+        vpn.step();
+        let mut end_va: VirtAddr = vpn.into();
+        end_va = end_va.min(VirtAddr::from(end));
+        
+        let page_start_offset = start_va.page_offset();
+        let page_end_offset = end_va.page_offset();
+        let page_len = if page_end_offset == 0 {
+            PAGE_SIZE - page_start_offset
+        } else {
+            page_end_offset - page_start_offset
+        };
+        
+        let copy_len = page_len.min(kernel_buf.len() - kernel_offset);
+        
+        // Perform the actual copy
+        unsafe {
+            let user_data = &mut ppn.get_bytes_array()[page_start_offset..page_start_offset + copy_len];
+            user_data.copy_from_slice(&kernel_buf[kernel_offset..kernel_offset + copy_len]);
+        }
+        
+        copied += copy_len;
+        kernel_offset += copy_len;
+        start += copy_len;
+    }
+    
+    if copied == len {
+        Ok(())
+    } else {
+        Err(copied)
+    }
+}
+
+/// Check if a user space address is valid and accessible
+/// 
+/// # Arguments
+/// * `token` - User space page table token
+/// * `ptr` - Pointer to check
+/// * `readable` - Whether the address needs to be readable
+/// * `writable` - Whether the address needs to be writable
+/// 
+/// # Returns
+/// * `true` - Address is valid and accessible
+/// * `false` - Address is invalid or not accessible
+pub fn check_user_address(token: usize, ptr: *const u8, readable: bool, writable: bool) -> bool {
+    let page_table = PageTable::from_token(token);
+    let va = VirtAddr::from(ptr as usize);
+    let vpn = va.floor();
+    
+    // Check if the page is mapped and valid
+    let pte = match page_table.translate(vpn) {
+        Some(pte) if pte.is_valid() => pte,
+        _ => return false,
+    };
+    
+    // Check permissions
+    if readable && !pte.readable() {
+        return false;
+    }
+    if writable && !pte.writable() {
+        return false;
+    }
+    
+    true
 }

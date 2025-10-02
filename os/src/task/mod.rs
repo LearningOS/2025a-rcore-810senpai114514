@@ -133,6 +133,16 @@ impl TaskManager {
         inner.tasks[cur].change_program_brk(size)
     }
 
+    /// Get mutable reference to current task's memory set
+    pub fn get_current_memory_set(&self) -> &'static mut MemorySet {
+        let inner = self.inner.exclusive_access();
+        let cur = inner.current_task;
+        unsafe { 
+            let ptr = &inner.tasks[cur].memory_set as *const MemorySet as *mut MemorySet;
+            &mut *ptr
+        }
+    }
+
     /// Switch current `Running` task to the task we have found,
     /// or there is no `Ready` task and we can exit with all applications completed
     fn run_next_task(&self) {
@@ -201,4 +211,9 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Get mutable reference to current task's memory set
+pub fn current_memory_set() -> &'static mut MemorySet {
+    TASK_MANAGER.get_current_memory_set()
 }
