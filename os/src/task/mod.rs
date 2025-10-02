@@ -134,14 +134,14 @@ impl TaskManager {
         inner.tasks[cur].change_program_brk(size)
     }
 
-    /// Get mutable reference to current task's memory set
-    pub fn get_current_memory_set(&self) -> &'static mut MemorySet {
-        let inner = self.inner.exclusive_access();
+    /// Execute a closure with mutable access to current task's memory set
+    pub fn with_current_memory_set<F, R>(&self, f: F) -> R 
+    where 
+        F: FnOnce(&mut MemorySet) -> R,
+    {
+        let mut inner = self.inner.exclusive_access();
         let cur = inner.current_task;
-        unsafe { 
-            let ptr = &inner.tasks[cur].memory_set as *const MemorySet as *mut MemorySet;
-            &mut *ptr
-        }
+        f(&mut inner.tasks[cur].memory_set)
     }
 
     /// Switch current `Running` task to the task we have found,
@@ -214,7 +214,10 @@ pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
 }
 
-/// Get mutable reference to current task's memory set
-pub fn current_memory_set() -> &'static mut MemorySet {
-    TASK_MANAGER.get_current_memory_set()
+/// Execute a closure with mutable access to current task's memory set
+pub fn with_current_memory_set<F, R>(f: F) -> R 
+where 
+    F: FnOnce(&mut MemorySet) -> R,
+{
+    TASK_MANAGER.with_current_memory_set(f)
 }

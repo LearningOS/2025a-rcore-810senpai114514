@@ -1,5 +1,5 @@
 //! Process management syscalls
-use crate::task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, current_user_token, current_memory_set};
+use crate::task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, current_user_token, with_current_memory_set};
 use crate::mm::{check_user_address, copy_from_user, copy_to_user, VirtAddr, MapPermission};
 use crate::syscall::{get_syscall_counter};
 use crate::config::PAGE_SIZE;
@@ -38,7 +38,7 @@ pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
     let ts_bytes = unsafe { 
         core::slice::from_raw_parts(&ts as *const TimeVal as *const u8, mem::size_of::<TimeVal>()) 
     };
-    copy_to_user(current_user_token(), ts_bytes, _ts as *mut u8, mem::size_of::<TimeVal>());
+    let _ = copy_to_user(current_user_token(), ts_bytes, _ts as *mut u8, mem::size_of::<TimeVal>());
     0
 }
 
@@ -128,14 +128,13 @@ pub fn sys_mmap(start: usize, len: usize, prot: usize) -> isize {
         Err(_) => return -1,
     };
     
-    // Get current memory set
-    let memory_set = current_memory_set();
-    
     // Perform the mapping
-    match memory_set.mmap(VirtAddr::from(start), len, permission) {
-        Ok(()) => 0,
-        Err(_) => -1,
-    }
+    with_current_memory_set(|memory_set| {
+        match memory_set.mmap(VirtAddr::from(start), len, permission) {
+            Ok(()) => 0,
+            Err(_) => -1,
+        }
+    })
 }
 
 /// munmap system call implementation
