@@ -1,5 +1,5 @@
 //! Process management syscalls
-use crate::task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, current_user_token, with_current_memory_set};
+use crate::task::{change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, current_user_token, with_current_memory_set, current_memory_set};
 use crate::mm::{check_user_address, copy_from_user, copy_to_user, VirtAddr, MapPermission};
 use crate::syscall::{get_syscall_counter};
 use crate::config::PAGE_SIZE;
