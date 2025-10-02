@@ -233,10 +233,8 @@ pub fn copy_from_user(token: usize, user_ptr: *const u8, kernel_buf: &mut [u8], 
         let copy_len = page_len.min(kernel_buf.len() - kernel_offset);
         
         // Perform the actual copy
-        unsafe {
-            let user_data = &ppn.get_bytes_array()[page_start_offset..page_start_offset + copy_len];
-            kernel_buf[kernel_offset..kernel_offset + copy_len].copy_from_slice(user_data);
-        }
+        let user_data = &ppn.get_bytes_array()[page_start_offset..page_start_offset + copy_len];
+        kernel_buf[kernel_offset..kernel_offset + copy_len].copy_from_slice(user_data);
         
         copied += copy_len;
         kernel_offset += copy_len;
@@ -302,10 +300,8 @@ pub fn copy_to_user(token: usize, kernel_buf: &[u8], user_ptr: *mut u8, len: usi
         let copy_len = page_len.min(kernel_buf.len() - kernel_offset);
         
         // Perform the actual copy
-        unsafe {
-            let user_data = &mut ppn.get_bytes_array()[page_start_offset..page_start_offset + copy_len];
-            user_data.copy_from_slice(&kernel_buf[kernel_offset..kernel_offset + copy_len]);
-        }
+        let user_data = &mut ppn.get_bytes_array()[page_start_offset..page_start_offset + copy_len];
+        user_data.copy_from_slice(&kernel_buf[kernel_offset..kernel_offset + copy_len]);
         
         copied += copy_len;
         kernel_offset += copy_len;

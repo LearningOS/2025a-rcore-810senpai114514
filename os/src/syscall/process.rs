@@ -31,11 +31,14 @@ pub fn sys_yield() -> isize {
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    let ts = TimeVal::default();
+    let mut ts = TimeVal::default();
     let us = get_time_us();
     ts.sec = us / 1000000;
     ts.usec = us % 1000000;
-    copy_to_user(current_user_token(), &ts, _ts as *mut u8, mem::size_of::<TimeVal>());
+    let ts_bytes = unsafe { 
+        core::slice::from_raw_parts(&ts as *const TimeVal as *const u8, mem::size_of::<TimeVal>()) 
+    };
+    copy_to_user(current_user_token(), ts_bytes, _ts as *mut u8, mem::size_of::<TimeVal>());
     0
 }
 
