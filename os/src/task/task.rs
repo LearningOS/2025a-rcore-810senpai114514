@@ -287,3 +287,12 @@ pub enum TaskStatus {
     /// exited
     Zombie,
 }
+
+/// Module-level function to change program break
+pub fn change_program_brk(size: i32) -> Option<usize> {
+    if let Some(current_task) = crate::task::current_task() {
+        current_task.change_program_brk(size)
+    } else {
+        None
+    }
+}

@@ -122,5 +122,5 @@ pub fn with_current_memory_set<F, R>(f: F) -> R
 where 
     F: FnOnce(&mut MemorySet) -> R,
 {
-    TASK_MANAGER.with_current_memory_set(f)
+    TASK_MANAGER.exclusive_access().with_current_memory_set(f)
 }

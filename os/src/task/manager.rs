@@ -51,6 +51,19 @@ impl TaskManager {
         
         Some(selected_task)
     }
+    
+    /// Execute a closure with mutable access to current task's memory set
+    pub fn with_current_memory_set<F, R>(&self, f: F) -> R 
+    where 
+        F: FnOnce(&mut crate::mm::MemorySet) -> R,
+    {
+        if let Some(current_task) = crate::task::current_task() {
+            let mut inner = current_task.inner_exclusive_access();
+            f(&mut inner.memory_set)
+        } else {
+            panic!("No current task");
+        }
+    }
 }
 
 lazy_static! {
