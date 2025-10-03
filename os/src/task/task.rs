@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use core::cell::RefMut;
 
 /// Big stride constant for stride scheduling
-const BIG_STRIDE: usize = (0x7FFFFFFF / 2048);
+const BIG_STRIDE: usize = 0x7FFFFFFF / 2048;
 
 /// Default priority for new processes
 const DEFAULT_PRIORITY: usize = 16;
