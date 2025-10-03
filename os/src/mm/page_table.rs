@@ -10,13 +10,21 @@ use bitflags::*;
 bitflags! {
     /// page table entry flags
     pub struct PTEFlags: u8 {
+        /// Valid bit
         const V = 1 << 0;
+        /// Read bit
         const R = 1 << 1;
+        /// Write bit
         const W = 1 << 2;
+        /// Execute bit
         const X = 1 << 3;
+        /// User bit
         const U = 1 << 4;
+        /// Global bit
         const G = 1 << 5;
+        /// Accessed bit
         const A = 1 << 6;
+        /// Dirty bit
         const D = 1 << 7;
     }
 }

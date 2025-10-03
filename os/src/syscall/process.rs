@@ -8,7 +8,7 @@ use crate::{
     mm::{check_user_address, copy_from_user, copy_to_user, translated_refmut, translated_str, VirtAddr, MapPermission},
     syscall::get_syscall_counter,
     task::{
-        add_task, change_program_brk, current_task, current_user_token, exit_current_and_run_next,
+        add_task, current_task, current_user_token, exit_current_and_run_next,
         suspend_current_and_run_next, with_current_memory_set, TaskControlBlock,
     },
     timer::get_time_us,
