@@ -11,6 +11,12 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefMut;
 
+/// Big stride constant for stride scheduling
+const BIG_STRIDE: usize = 0x7FFFFFFF / 2048;
+
+/// Default priority for new processes
+const DEFAULT_PRIORITY: usize = 16;
+
 /// Task control block structure
 ///
 /// Directly save the contents that will not change during running
@@ -71,6 +77,12 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Current stride value for stride scheduling
+    pub stride: usize,
+
+    /// Process priority (>= 2)
+    pub priority: usize,
 }
 
 impl TaskControlBlockInner {
@@ -86,6 +98,28 @@ impl TaskControlBlockInner {
     pub fn is_zombie(&self) -> bool {
         self.get_status() == TaskStatus::Zombie
     }
+    
+    /// Get the pass value for stride scheduling
+    /// pass = BIG_STRIDE / priority
+    pub fn get_pass(&self) -> usize {
+        BIG_STRIDE / self.priority
+    }
+    
+    /// Update stride by adding pass value
+    pub fn update_stride(&mut self) {
+        self.stride += self.get_pass();
+    }
+    
+    /// Set priority and validate it
+    pub fn set_priority(&mut self, priority: usize) -> bool {
+        if priority >= 2 {
+            self.priority = priority;
+            true
+        } else {
+            false
+        }
+    }
+    
     pub fn alloc_fd(&mut self) -> usize {
         if let Some(fd) = (0..self.fd_table.len()).find(|fd| self.fd_table[*fd].is_none()) {
             fd
@@ -135,6 +169,8 @@ impl TaskControlBlock {
                     ],
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    stride: 0,
+                    priority: DEFAULT_PRIORITY,
                 })
             },
         };
@@ -216,6 +252,8 @@ impl TaskControlBlock {
                     fd_table: new_fd_table,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    stride: 0,
+                    priority: parent_inner.priority,
                 })
             },
         });
@@ -274,4 +312,13 @@ pub enum TaskStatus {
     Running,
     /// exited
     Zombie,
+}
+
+/// Module-level function to change program break
+pub fn change_program_brk(size: i32) -> Option<usize> {
+    if let Some(current_task) = crate::task::current_task() {
+        current_task.change_program_brk(size)
+    } else {
+        None
+    }
 }

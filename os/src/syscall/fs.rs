@@ -1,6 +1,6 @@
 //! File and filesystem-related syscalls
-use crate::fs::{open_file, OpenFlags, Stat};
-use crate::mm::{translated_byte_buffer, translated_str, UserBuffer};
+use crate::fs::{open_file, OpenFlags, Stat, ROOT_INODE};
+use crate::mm::{translated_byte_buffer, translated_refmut, translated_str, UserBuffer};
 use crate::task::{current_task, current_user_token};
 
 pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
@@ -76,28 +76,63 @@ pub fn sys_close(fd: usize) -> isize {
 }
 
 /// YOUR JOB: Implement fstat.
-pub fn sys_fstat(_fd: usize, _st: *mut Stat) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_fstat NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_fstat(fd: usize, st: *mut Stat) -> isize {
+    trace!("kernel:pid[{}] sys_fstat", current_task().unwrap().pid.0);
+    let task = current_task().unwrap();
+    let token = current_user_token();
+    let inner = task.inner_exclusive_access();
+    
+    if fd >= inner.fd_table.len() {
+        return -1;
+    }
+    
+    if let Some(file) = &inner.fd_table[fd] {
+        let stat = file.get_stat();
+        let st_ref = translated_refmut(token, st);
+        *st_ref = stat;
+        0
+    } else {
+        -1
+    }
 }
 
 /// YOUR JOB: Implement linkat.
-pub fn sys_linkat(_old_name: *const u8, _new_name: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_linkat NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_linkat(old_name: *const u8, new_name: *const u8) -> isize {
+    trace!("kernel:pid[{}] sys_linkat", current_task().unwrap().pid.0);
+    let token = current_user_token();
+    let old_path = translated_str(token, old_name);
+    let new_path = translated_str(token, new_name);
+    
+    // Check if old_name == new_name
+    if old_path == new_path {
+        return -1;
+    }
+    
+    // Find the inode by old_name
+    if let Some(inode) = ROOT_INODE.find(old_path.as_str()) {
+        let inode_id = inode.get_inode_id();
+        
+        // Create the hard link
+        if ROOT_INODE.link(new_path.as_str(), inode_id).is_some() {
+            0
+        } else {
+            -1
+        }
+    } else {
+        -1
+    }
 }
 
 /// YOUR JOB: Implement unlinkat.
-pub fn sys_unlinkat(_name: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_unlinkat NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_unlinkat(_dirfd: i32, path: *const u8, _flags: u32) -> isize {
+    trace!("kernel:pid[{}] sys_unlinkat", current_task().unwrap().pid.0);
+    let token = current_user_token();
+    let path_str = translated_str(token, path);
+    
+    // Remove the hard link
+    if ROOT_INODE.unlink(path_str.as_str()).is_some() {
+        0
+    } else {
+        -1
+    }
 }

@@ -10,6 +10,33 @@
 //! `sys_` then the name of the syscall. You can find functions like this in
 //! submodules, and you should also implement syscalls this way.
 
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+/// Maximum number of syscalls to track
+const MAX_SYSCALL_NUM: usize = 500;
+
+/// Global syscall counter array using atomic variables
+static SYSCALL_COUNTER: [AtomicUsize; MAX_SYSCALL_NUM] = {
+    const INIT: AtomicUsize = AtomicUsize::new(0);
+    [INIT; MAX_SYSCALL_NUM]
+};
+
+/// Increment the counter for a specific syscall
+pub fn increment_syscall_counter(syscall_id: usize) {
+    if syscall_id < MAX_SYSCALL_NUM {
+        SYSCALL_COUNTER[syscall_id].fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// Get the counter for a specific syscall
+pub fn get_syscall_counter(syscall_id: usize) -> usize {
+    if syscall_id < MAX_SYSCALL_NUM {
+        SYSCALL_COUNTER[syscall_id].load(Ordering::Relaxed)
+    } else {
+        0
+    }
+}
+
 /// unlinkat syscall
 const SYSCALL_UNLINKAT: usize = 35;
 /// linkat syscall
@@ -48,6 +75,8 @@ const SYSCALL_MMAP: usize = 222;
 const SYSCALL_WAITPID: usize = 260;
 /// spawn syscall
 const SYSCALL_SPAWN: usize = 400;
+/// trace syscall
+const SYSCALL_TRACE: usize = 66;
 
 mod fs;
 mod process;
@@ -59,11 +88,14 @@ use crate::fs::Stat;
 
 /// handle syscall exception with `syscall_id` and other arguments
 pub fn syscall(syscall_id: usize, args: [usize; 4]) -> isize {
+    // Increment the counter for this syscall
+    increment_syscall_counter(syscall_id);
+    
     match syscall_id {
         SYSCALL_OPEN => sys_open(args[1] as *const u8, args[2] as u32),
         SYSCALL_CLOSE => sys_close(args[0]),
         SYSCALL_LINKAT => sys_linkat(args[1] as *const u8, args[3] as *const u8),
-        SYSCALL_UNLINKAT => sys_unlinkat(args[1] as *const u8),
+        SYSCALL_UNLINKAT => sys_unlinkat(args[0] as i32, args[1] as *const u8, args[2] as u32),
         SYSCALL_READ => sys_read(args[0], args[1] as *const u8, args[2]),
         SYSCALL_WRITE => sys_write(args[0], args[1] as *const u8, args[2]),
         SYSCALL_FSTAT => sys_fstat(args[0], args[1] as *mut Stat),
@@ -79,6 +111,7 @@ pub fn syscall(syscall_id: usize, args: [usize; 4]) -> isize {
         SYSCALL_SBRK => sys_sbrk(args[0] as i32),
         SYSCALL_SPAWN => sys_spawn(args[0] as *const u8),
         SYSCALL_SET_PRIORITY => sys_set_priority(args[0] as isize),
+        SYSCALL_TRACE => sys_trace(args[0], args[1], args[2]),
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     }
 }

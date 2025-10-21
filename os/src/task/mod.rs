@@ -23,12 +23,13 @@ mod switch;
 mod task;
 
 use crate::fs::{open_file, OpenFlags};
+use crate::mm::MemorySet;
 use alloc::sync::Arc;
 pub use context::TaskContext;
 use lazy_static::*;
-pub use manager::{fetch_task, TaskManager};
+pub use manager::{fetch_task, TaskManager, TASK_MANAGER};
 use switch::__switch;
-pub use task::{TaskControlBlock, TaskStatus};
+pub use task::{TaskControlBlock, TaskStatus, change_program_brk};
 
 pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 pub use manager::add_task;
@@ -119,4 +120,12 @@ lazy_static! {
 ///Add init process to the manager
 pub fn add_initproc() {
     add_task(INITPROC.clone());
+}
+
+/// Execute a closure with mutable access to current task's memory set
+pub fn with_current_memory_set<F, R>(f: F) -> R 
+where 
+    F: FnOnce(&mut MemorySet) -> R,
+{
+    TASK_MANAGER.exclusive_access().with_current_memory_set(f)
 }
