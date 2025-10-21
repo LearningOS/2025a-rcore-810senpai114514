@@ -287,7 +287,7 @@ impl Inode {
                 
                 // decrease size
                 let new_size = (file_count - 1) * DIRENT_SZ;
-                self.increase_size(new_size as u32, root_inode, &mut fs);
+                root_inode.size = new_size as u32;
             }
         });
         
