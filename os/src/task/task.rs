@@ -45,6 +45,10 @@ pub struct TaskControlBlockInner {
     pub mutex_allocation: alloc::vec::Vec<usize>,
     /// Deadlock detection: semaphore resources held by this thread (sem_id, count)
     pub semaphore_allocation: alloc::vec::Vec<(usize, usize)>,
+    /// Deadlock detection: the mutex this thread is currently waiting for (if any)
+    pub waiting_mutex: Option<usize>,
+    /// Deadlock detection: the semaphore this thread is currently waiting for (if any)
+    pub waiting_semaphore: Option<usize>,
 }
 
 impl TaskControlBlockInner {
@@ -81,6 +85,8 @@ impl TaskControlBlock {
                     exit_code: None,
                     mutex_allocation: alloc::vec::Vec::new(),
                     semaphore_allocation: alloc::vec::Vec::new(),
+                    waiting_mutex: None,
+                    waiting_semaphore: None,
                 })
             },
         }
