@@ -12,6 +12,8 @@ pub trait Mutex: Sync + Send {
     fn lock(&self);
     /// Unlock the mutex
     fn unlock(&self);
+    /// Check if the mutex is locked
+    fn is_locked(&self) -> bool;
 }
 
 /// Spinlock Mutex struct
@@ -50,6 +52,10 @@ impl Mutex for MutexSpin {
         let mut locked = self.locked.exclusive_access();
         *locked = false;
     }
+
+    fn is_locked(&self) -> bool {
+        self.locked.exclusive_access().clone()
+    }
 }
 
 /// Blocking Mutex struct
@@ -60,6 +66,7 @@ pub struct MutexBlocking {
 pub struct MutexBlockingInner {
     locked: bool,
     wait_queue: VecDeque<Arc<TaskControlBlock>>,
+    holder: Option<usize>,  // Track which thread holds the mutex
 }
 
 impl MutexBlocking {
@@ -71,6 +78,7 @@ impl MutexBlocking {
                 UPSafeCell::new(MutexBlockingInner {
                     locked: false,
                     wait_queue: VecDeque::new(),
+                    holder: None,
                 })
             },
         }
@@ -100,6 +108,11 @@ impl Mutex for MutexBlocking {
             wakeup_task(waking_task);
         } else {
             mutex_inner.locked = false;
+            mutex_inner.holder = None;
         }
+    }
+
+    fn is_locked(&self) -> bool {
+        self.inner.exclusive_access().locked
     }
 }
