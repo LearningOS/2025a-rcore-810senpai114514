@@ -218,32 +218,32 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
     let task = current_task().unwrap();
     let process = current_process();
 
-    // Pre-check: if enabled and would block, run cycle detection
-    let need_check = {
+    // Determine if deadlock detection is enabled and current down would block
+    let (detect_enabled, will_block) = {
         let process_inner = process.inner_exclusive_access();
-        if !process_inner.deadlock_detect_enabled {
-            false
+        let detect_enabled = process_inner.deadlock_detect_enabled;
+        if !detect_enabled {
+            (false, false)
         } else {
             let sem = process_inner.semaphore_list[sem_id].as_ref().unwrap();
             let cnt = sem.inner.exclusive_access().count;
-            cnt <= 0
+            (true, cnt <= 0)
         }
     };
-    if need_check {
+
+    // If would block under detection, mark waiting first, then run cycle detection
+    if detect_enabled && will_block {
+        {
+            let mut task_inner = task.inner_exclusive_access();
+            task_inner.waiting_semaphore = Some(sem_id);
+        }
         if !check_deadlock_semaphore(sem_id) {
+            // clear waiting mark before returning error
+            let mut task_inner = task.inner_exclusive_access();
+            task_inner.waiting_semaphore = None;
             trace!("Deadlock detected for semaphore {}", sem_id);
             return -0xDEAD;
         }
-    }
-
-    // Mark waiting before potentially blocking (only if enabled)
-    let mark_waiting_semaphore = {
-        let process_inner = process.inner_exclusive_access();
-        process_inner.deadlock_detect_enabled
-    };
-    if mark_waiting_semaphore {
-        let mut task_inner = task.inner_exclusive_access();
-        task_inner.waiting_semaphore = Some(sem_id);
     }
 
     // Perform down
@@ -255,7 +255,7 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
 
     // Clear waiting (if set) and update allocation tracking
     let mut task_inner = task.inner_exclusive_access();
-    if mark_waiting_semaphore {
+    if detect_enabled {
         task_inner.waiting_semaphore = None;
     }
     if let Some(entry) = task_inner.semaphore_allocation.iter_mut().find(|e| e.0 == sem_id) {
