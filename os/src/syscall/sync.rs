@@ -82,8 +82,12 @@ pub fn sys_mutex_lock(mutex_id: usize) -> isize {
         }
     }
 
-    // Mark waiting before potentially blocking
-    {
+    // Mark waiting before potentially blocking (only if enabled)
+    let mark_waiting_mutex = {
+        let process_inner = process.inner_exclusive_access();
+        process_inner.deadlock_detect_enabled
+    };
+    if mark_waiting_mutex {
         let mut task_inner = task.inner_exclusive_access();
         task_inner.waiting_mutex = Some(mutex_id);
     }
@@ -95,9 +99,11 @@ pub fn sys_mutex_lock(mutex_id: usize) -> isize {
     };
     mutex.lock();
 
-    // Clear waiting and record allocation
+    // Clear waiting (if set) and record allocation
     let mut task_inner = task.inner_exclusive_access();
-    task_inner.waiting_mutex = None;
+    if mark_waiting_mutex {
+        task_inner.waiting_mutex = None;
+    }
     if !task_inner.mutex_allocation.contains(&mutex_id) {
         task_inner.mutex_allocation.push(mutex_id);
     }
@@ -232,8 +238,12 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
         }
     }
 
-    // Mark waiting before potentially blocking
-    {
+    // Mark waiting before potentially blocking (only if enabled)
+    let mark_waiting_semaphore = {
+        let process_inner = process.inner_exclusive_access();
+        process_inner.deadlock_detect_enabled
+    };
+    if mark_waiting_semaphore {
         let mut task_inner = task.inner_exclusive_access();
         task_inner.waiting_semaphore = Some(sem_id);
     }
@@ -245,9 +255,11 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
     };
     sem.down();
 
-    // Clear waiting and update allocation tracking
+    // Clear waiting (if set) and update allocation tracking
     let mut task_inner = task.inner_exclusive_access();
-    task_inner.waiting_semaphore = None;
+    if mark_waiting_semaphore {
+        task_inner.waiting_semaphore = None;
+    }
     if let Some(entry) = task_inner.semaphore_allocation.iter_mut().find(|e| e.0 == sem_id) {
         entry.1 += 1;
     } else {
