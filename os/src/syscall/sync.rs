@@ -374,7 +374,7 @@ fn check_deadlock_mutex(requesting_mutex_id: usize) -> bool {
         if let Some(tcb) = otcb {
             let ti = tcb.inner_exclusive_access();
             if Arc::ptr_eq(&tcb, &task) {
-                current_tid = ti.res.as_ref().unwrap().tid;
+                current_tid = tid; // use enumeration index consistently
             }
             let waiting_mutex = ti.waiting_mutex;
             let held_mutexes = ti.mutex_allocation.clone();
@@ -451,7 +451,7 @@ fn check_deadlock_semaphore(requesting_sem_id: usize) -> bool {
         if let Some(tcb) = otcb {
             let ti = tcb.inner_exclusive_access();
             if Arc::ptr_eq(&tcb, &task) {
-                current_tid = ti.res.as_ref().unwrap().tid;
+                current_tid = tid; // use enumeration index consistently
             }
             let waiting_semaphore = ti.waiting_semaphore;
             let held_sems = ti
