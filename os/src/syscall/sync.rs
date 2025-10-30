@@ -360,50 +360,57 @@ pub fn sys_enable_deadlock_detect(enabled: usize) -> isize {
 }
 
 fn check_deadlock_mutex(requesting_mutex_id: usize) -> bool {
-    // Build wait-for graph among threads in the current process for mutexes
+    // Build wait-for graph among threads in the current process for mutexes without overlapping borrows
     let task = current_task().unwrap();
-    let (tasks, current_tid) = {
-        let process = task.process.upgrade().unwrap();
-        let inner = process.inner_exclusive_access();
-        let mut v = alloc::vec::Vec::new();
-        for (tid, t) in inner.tasks.iter().enumerate() {
-            if let Some(tcb) = t {
-                v.push((tid, Arc::clone(tcb)));
-            }
-        }
-        let ti = task.inner_exclusive_access();
-        (v, ti.res.as_ref().unwrap().tid)
-    };
-
-    // Helper: who holds a mutex
-    let holders_of = |mid: usize, list: &[(usize, Arc<crate::task::TaskControlBlock>)]| -> alloc::vec::Vec<usize> {
-        let mut ret = alloc::vec::Vec::new();
-        for (tid, tcb) in list.iter() {
+    let process = task.process.upgrade().unwrap();
+    let inner = process.inner_exclusive_access();
+    // Snapshot per-thread info
+    struct ThreadInfo {
+        tid: usize,
+        waiting_mutex: Option<usize>,
+        held_mutexes: alloc::vec::Vec<usize>,
+    }
+    let mut infos: alloc::vec::Vec<ThreadInfo> = alloc::vec::Vec::new();
+    let mut current_tid = 0usize;
+    for (tid, otcb) in inner.tasks.iter().enumerate() {
+        if let Some(tcb) = otcb {
             let ti = tcb.inner_exclusive_access();
-            if ti.mutex_allocation.contains(&mid) {
-                ret.push(*tid);
+            if Arc::ptr_eq(&tcb, &task) {
+                current_tid = ti.res.as_ref().unwrap().tid;
             }
+            let waiting_mutex = ti.waiting_mutex;
+            let held_mutexes = ti.mutex_allocation.clone();
+            drop(ti);
+            infos.push(ThreadInfo { tid, waiting_mutex, held_mutexes });
         }
-        ret
-    };
+    }
+    drop(inner);
 
-    // adjacency list by tid index
-    let mut adj: alloc::vec::Vec<alloc::vec::Vec<usize>> = alloc::vec::Vec::new();
-    let max_tid = tasks.iter().map(|(tid, _)| *tid).max().unwrap_or(0);
-    adj.resize(max_tid + 1, alloc::vec::Vec::new());
-
-    // existing waiting edges
-    for (tid, tcb) in tasks.iter() {
-        let ti = tcb.inner_exclusive_access();
-        if let Some(wait_m) = ti.waiting_mutex {
-            let hs = holders_of(wait_m, &tasks);
-            for h in hs { adj[*tid].push(h); }
+    // Build holders map: mutex_id -> Vec<tid>
+    use alloc::collections::BTreeMap;
+    let mut holders: BTreeMap<usize, alloc::vec::Vec<usize>> = BTreeMap::new();
+    for info in &infos {
+        for &m in &info.held_mutexes {
+            holders.entry(m).or_default().push(info.tid);
         }
     }
 
+    // adjacency list by tid index
+    let max_tid = infos.iter().map(|i| i.tid).max().unwrap_or(0);
+    let mut adj: alloc::vec::Vec<alloc::vec::Vec<usize>> = alloc::vec::Vec::new();
+    adj.resize(max_tid + 1, alloc::vec::Vec::new());
+
+    // existing waiting edges
+    for info in &infos {
+        if let Some(wait_m) = info.waiting_mutex {
+            if let Some(hs) = holders.get(&wait_m) {
+                for &h in hs { adj[info.tid].push(h); }
+            }
+        }
+    }
     // simulate current request edge
-    for h in holders_of(requesting_mutex_id, &tasks) {
-        adj[current_tid].push(h);
+    if let Some(hs) = holders.get(&requesting_mutex_id) {
+        for &h in hs { adj[current_tid].push(h); }
     }
 
     // detect cycle
@@ -422,8 +429,8 @@ fn check_deadlock_mutex(requesting_mutex_id: usize) -> bool {
         st[u] = false;
         false
     }
-    for (tid, _) in tasks.iter() {
-        if dfs(*tid, &adj, &mut visited, &mut in_stack) {
+    for info in &infos {
+        if dfs(info.tid, &adj, &mut visited, &mut in_stack) {
             return false; // cycle found → would deadlock
         }
     }
@@ -431,51 +438,58 @@ fn check_deadlock_mutex(requesting_mutex_id: usize) -> bool {
 }
 
 fn check_deadlock_semaphore(requesting_sem_id: usize) -> bool {
-    // Build wait-for graph among threads in the current process for semaphores
+    // Build wait-for graph among threads in the current process for semaphores without overlapping borrows
     let task = current_task().unwrap();
-    let (tasks, current_tid) = {
-        let process = task.process.upgrade().unwrap();
-        let inner = process.inner_exclusive_access();
-        let mut v = alloc::vec::Vec::new();
-        for (tid, t) in inner.tasks.iter().enumerate() {
-            if let Some(tcb) = t {
-                v.push((tid, Arc::clone(tcb)));
-            }
-        }
-        let ti = task.inner_exclusive_access();
-        (v, ti.res.as_ref().unwrap().tid)
-    };
-
-    let holders_of = |sid: usize, list: &[(usize, Arc<crate::task::TaskControlBlock>)]| -> alloc::vec::Vec<usize> {
-        let mut ret = alloc::vec::Vec::new();
-        for (tid, tcb) in list.iter() {
+    let process = task.process.upgrade().unwrap();
+    let inner = process.inner_exclusive_access();
+    struct ThreadInfo {
+        tid: usize,
+        waiting_semaphore: Option<usize>,
+        held_sems: alloc::vec::Vec<usize>,
+    }
+    let mut infos: alloc::vec::Vec<ThreadInfo> = alloc::vec::Vec::new();
+    let mut current_tid = 0usize;
+    for (tid, otcb) in inner.tasks.iter().enumerate() {
+        if let Some(tcb) = otcb {
             let ti = tcb.inner_exclusive_access();
-            if let Some((_, cnt)) = ti.semaphore_allocation.iter().find(|(id, _)| *id == sid) {
-                if *cnt > 0 { ret.push(*tid); }
+            if Arc::ptr_eq(&tcb, &task) {
+                current_tid = ti.res.as_ref().unwrap().tid;
             }
+            let waiting_semaphore = ti.waiting_semaphore;
+            let held_sems = ti
+                .semaphore_allocation
+                .iter()
+                .filter_map(|(id, cnt)| if *cnt > 0 { Some(*id) } else { None })
+                .collect();
+            drop(ti);
+            infos.push(ThreadInfo { tid, waiting_semaphore, held_sems });
         }
-        ret
-    };
+    }
+    drop(inner);
 
+    use alloc::collections::BTreeMap;
+    let mut holders: BTreeMap<usize, alloc::vec::Vec<usize>> = BTreeMap::new();
+    for info in &infos {
+        for &s in &info.held_sems {
+            holders.entry(s).or_default().push(info.tid);
+        }
+    }
+
+    let max_tid = infos.iter().map(|i| i.tid).max().unwrap_or(0);
     let mut adj: alloc::vec::Vec<alloc::vec::Vec<usize>> = alloc::vec::Vec::new();
-    let max_tid = tasks.iter().map(|(tid, _)| *tid).max().unwrap_or(0);
     adj.resize(max_tid + 1, alloc::vec::Vec::new());
 
-    // existing waiting edges
-    for (tid, tcb) in tasks.iter() {
-        let ti = tcb.inner_exclusive_access();
-        if let Some(wait_s) = ti.waiting_semaphore {
-            let hs = holders_of(wait_s, &tasks);
-            for h in hs { adj[*tid].push(h); }
+    for info in &infos {
+        if let Some(wait_s) = info.waiting_semaphore {
+            if let Some(hs) = holders.get(&wait_s) {
+                for &h in hs { adj[info.tid].push(h); }
+            }
         }
     }
-
-    // simulate current request edge
-    for h in holders_of(requesting_sem_id, &tasks) {
-        adj[current_tid].push(h);
+    if let Some(hs) = holders.get(&requesting_sem_id) {
+        for &h in hs { adj[current_tid].push(h); }
     }
 
-    // detect cycle
     let mut visited = alloc::vec::Vec::new();
     let mut in_stack = alloc::vec::Vec::new();
     visited.resize(max_tid + 1, false);
@@ -491,8 +505,8 @@ fn check_deadlock_semaphore(requesting_sem_id: usize) -> bool {
         st[u] = false;
         false
     }
-    for (tid, _) in tasks.iter() {
-        if dfs(*tid, &adj, &mut visited, &mut in_stack) {
+    for info in &infos {
+        if dfs(info.tid, &adj, &mut visited, &mut in_stack) {
             return false; // cycle found → would deadlock
         }
     }
