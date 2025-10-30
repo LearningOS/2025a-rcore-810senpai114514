@@ -72,13 +72,11 @@ pub fn sys_mutex_lock(mutex_id: usize) -> isize {
     let task = current_task().unwrap();
     let process = current_process();
     // Pre-check for deadlock using wait-for graph
-    {
-        let process_inner = process.inner_exclusive_access();
-        if process_inner.deadlock_detect_enabled {
-            if !check_deadlock_mutex(mutex_id) {
-                trace!("Deadlock detected for mutex {}", mutex_id);
-                return -0xDEAD;
-            }
+    let detect_enabled = { current_process().inner_exclusive_access().deadlock_detect_enabled };
+    if detect_enabled {
+        if !check_deadlock_mutex(mutex_id) {
+            trace!("Deadlock detected for mutex {}", mutex_id);
+            return -0xDEAD;
         }
     }
 
